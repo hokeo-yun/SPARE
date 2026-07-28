@@ -125,24 +125,6 @@ def validate(model, loader, find_thres=False, bs=256):
     return ap, r_acc0, f_acc0, acc0, r_acc1, f_acc1, acc1, best_thres
 
 
-
-
-
-# = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = #
-
-
-
-
-# def recursively_read(rootdir, must_contain, exts=["PNG", "png", "jpg", "JPEG", "jpeg", "bmp"]):
-#     out = []
-
-#     for r, d, f in os.walk(rootdir):
-#         for file in f:
-#             if (file.split('.')[-1] in exts)  and  (must_contain in os.path.join(r, file)):
-#                 out.append(os.path.join(r, file))
-    
-#     return out
-
 def recursively_read(rootdir, must_contain, exts=("png", "jpg", "jpeg", "bmp", "webp")):
     out = []
 
@@ -153,7 +135,6 @@ def recursively_read(rootdir, must_contain, exts=("png", "jpg", "jpeg", "bmp", "
 
     return out
 
-
 def get_list(path, must_contain=''):
     if ".pickle" in path:
         with open(path, 'rb') as f:
@@ -162,9 +143,6 @@ def get_list(path, must_contain=''):
     else:
         image_list = recursively_read(path, must_contain)
     return image_list
-
-
-
 
 class RealFakeDataset_for_test(Dataset):
     def __init__(self,  dataset_path,

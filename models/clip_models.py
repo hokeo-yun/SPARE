@@ -10,18 +10,8 @@ CHANNELS = {
 }
 
 class GatingNetwork(nn.Module):
-    """
-    Per-layer gating network that predicts the semantic removal strength g^(k).
-    
-    Input: statistics of d^(k) and ||delta^(k)||
-    Output: g^(k) in [0, 1]
-    
-    g=0 -> keep original LTD (no purification)
-    g=1 -> fully use PS-LTD (maximum purification)
-    """
     def __init__(self, hidden_dim=16):
         super(GatingNetwork, self).__init__()
-        # Input: [mean(d), ||d||, ||delta||] -> 3 scalar features
         self.mlp = nn.Sequential(
             nn.Linear(4, hidden_dim),
             nn.GELU(),
@@ -30,18 +20,8 @@ class GatingNetwork(nn.Module):
         )
 
     def forward(self, o_mean, o_norm, ps_mean, ps_norm):
-        """
-        Args:
-            d_mean:     scalar mean of d^(k), shape [B]
-            d_norm:     ||d^(k)||_2,          shape [B]
-            delta_norm: ||delta^(k)||_2,      shape [B] 
-                        where delta^(k) = f^(k) - f_ps^(k)
-        Returns:
-            g: gating value in [0, 1], shape [B, 1]
-        """
-        # Stack into [B, 3]
         gate_input = torch.stack([o_mean, o_norm, ps_mean, ps_norm], dim=-1)
-        g = self.mlp(gate_input)  # [B, 1]
+        g = self.mlp(gate_input)
         return g
 
 class Hook:
@@ -176,9 +156,9 @@ class CLIPModel(nn.Module):
     def _collect_all_cls_features(self):
         tensors = []
         for hook in self.hooks:
-            x_out = hook.output[0, :, :]  # [B, D]
+            x_out = hook.output[0, :, :]
             tensors.append(x_out)
-        return torch.stack(tensors, dim=1)  # [B, num_layers, D]
+        return torch.stack(tensors, dim=1)
 
     def patch_shuffle(self, x):
         b, c, h, w = x.shape
@@ -207,7 +187,7 @@ class CLIPModel(nn.Module):
         shuffled = shuffled.permute(0, 3, 1, 4, 2, 5).reshape(b, c, h, w)
         return shuffled
 
-    def patch_shuffle_p(self, x):
+    def patch_shuffle_p(self, x, k):
         b, c, h, w = x.shape
         if h % self.patch_size != 0 or w % self.patch_size != 0:
             raise ValueError(
@@ -218,10 +198,8 @@ class CLIPModel(nn.Module):
         gw = w // self.patch_size
         n = gh * gw
 
-        # 计算需要打乱的 Patch 数量
         num_to_shuffle = int(self.p * n)
         
-        # 如果打乱数量 <= 1，毫无意义，直接返回原图
         if num_to_shuffle <= 1:
             return x 
 
@@ -238,9 +216,6 @@ class CLIPModel(nn.Module):
         idx_to_shuffle = final_idx.gather(1, to_shuffle_pos)
 
         sorted_desc, indices_desc = torch.sort(idx_to_shuffle, dim=1, descending=False)
-        
-        # rand_shuffle = torch.rand(b, num_to_shuffle, device=x.device)
-        # shuffled_subset = idx_to_shuffle.gather(1, torch.argsort(rand_shuffle, dim=1))
 
         final_idx.scatter_(1, sorted_desc, to_shuffle_pos)
 
@@ -278,56 +253,26 @@ class CLIPModel(nn.Module):
         return transformer_output
 
     def compute_purified(self, origin_features, ps_features):
-        """
-        Args:
-            origin_features: selected layer CLS tokens from original image, [B, n, D]
-            ps_features:     selected layer CLS tokens from PS image,       [B, n, D]
-            
-        Returns:
-            d_pure: purified artifact transition features, [B, n-1, D]
-            d_orig: original LTD (for consistency loss),   [B, n-1, D]
-            d_ps:   PS image LTD (for consistency loss),   [B, n-1, D]
-        """
-        # Step 1: Compute LTD for both views
-        delta_d = origin_features - ps_features  # [B, n, D]
-
-        # Step 2: Compute semantic transition estimate
-        # Delta_d^(k) = d^(k) - d_ps^(k)
-        
-
-        # Step 3: Compute per-layer semantic dependency signal
-        # delta^(k) = f^(k) - f_ps^(k)  (used as gating input)
-
-        # Step 4: Adaptive gated removal
-        # d_pure^(k) = d^(k) - g^(k) * Delta_d^(k)
+        delta_d = origin_features - ps_features
         d_pure_list = []
-        d_q_list = []
-        for k in range(delta_d.size(1)):  # iterate over n-1 transitions
-            d_k = origin_features[:, k, :]        # [B, D]
+        for k in range(delta_d.size(1)):
+            d_k = origin_features[:, k, :]
             ps_k = ps_features[:, k, :]
-            delta_d_k = delta_d[:, k, :] # [B, D]
-
-            # Compute gating input statistics
-            delta_d_mean = delta_d_k.mean(dim=-1)          # [B]
-            delta_d_norm = delta_d_k.norm(dim=-1)          # [B]
+            delta_d_k = delta_d[:, k, :]
 
             d_k_mean = d_k.mean(dim=-1)
             d_k_norm = d_k.norm(dim=-1)
             ps_k_mean = ps_k.mean(dim=-1)
             ps_k_norm = ps_k.norm(dim=-1)
 
-            # Predict gating value g^(k) in [0, 1]
-            g_k = self.gating_networks[k](d_k_mean, d_k_norm, ps_k_mean, ps_k_norm)  # [B, 1]
+            g_k = self.gating_networks[k](d_k_mean, d_k_norm, ps_k_mean, ps_k_norm)
 
-            d_pure_k = g_k * delta_d_k  # [B, D]
-            d_q_k = d_k - g_k * delta_d_k
+            d_pure_k = g_k * delta_d_k
             d_pure_list.append(d_pure_k)
-            d_q_list.append(d_q_k)
 
         d_pure = torch.stack(d_pure_list, dim=1)  # [B, selected_num, D]
-        d_q = torch.stack(d_q_list, dim=1)
 
-        return d_pure, d_q, origin_features, ps_features
+        return d_pure, origin_features
 
     def forward(self, x, return_feature=False):
         features = self.model.encode_image(x)
@@ -345,31 +290,16 @@ class CLIPModel(nn.Module):
             selection_probs=selection_probs,
         )
 
-        # diff_selected_features = origin_selected_features - ps_selected_features
-        d_pure, d_q, d_orig, d_ps = self.compute_purified(
+        d_pure, d_orig = self.compute_purified(
             origin_features=origin_selected_features, ps_features=ps_selected_features
         )
 
         origin_output = self.self_attention(d_orig, False)
-        # origin_output = self.self_attention(d_q, False)
         delta_output = self.self_attention(d_pure, True)
-        # delta_output = self.self_attention(d_q, True)
 
         origin_output = origin_output[:, 0, :]
         delta_output = delta_output[:, 0, :]
 
-        # cls = [origin_output, delta_output]
-        # tokens = torch.stack(cls, dim=0)
-        # tokens = F.gelu(self.fc1(tokens))
-        # tokens = self.fc2(tokens).squeeze().permute(1, 0)
-        # result = self.fc3(tokens).view(-1).unsqueeze(1)
-
         logits = self.classification_head(torch.cat((origin_output, delta_output), dim=1))
-        # logits = self.classification_head(delta_output)
 
         return logits
-        # return {
-        #     'logits': logits,
-        #     'd_pure': d_pure,   # for L_consist
-        #     'd_ps': d_ps,       # for L_consist
-        # }

@@ -50,34 +50,6 @@ if __name__ == '__main__':
     data_loader = create_dataloader(opt, None, train_dataset)
     val_loader = create_dataloader(val_opt, None, val_dataset)
 
-    # labels = []
-
-    # print("Length of val_dataset:", len(val_dataset))
-
-    # for idx in range(len(val_dataset)):
-    #     data = val_dataset[idx]
-
-    #     # 情况1：dataset 返回字典，例如 {"img": ..., "label": ...}
-    #     if isinstance(data, dict):
-    #         label = data["label"]
-
-    #     # 情况2：dataset 返回元组，例如 (img, label)
-    #     elif isinstance(data, (tuple, list)):
-    #         label = data[1]
-
-    #     else:
-    #         raise TypeError(f"Unknown data type: {type(data)}")
-
-    #     if torch.is_tensor(label):
-    #         label = label.item()
-
-    #     labels.append(int(label))
-
-    # print("Val label distribution:", Counter(labels))
-    # print("Number of label=0:", labels.count(0))
-    # print("Number of label=1:", labels.count(1))
-
-
     train_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "train"))
     val_writer = SummaryWriter(os.path.join(opt.checkpoints_dir, opt.name, "val"))
     save_path = os.path.join(opt.checkpoints_dir, opt.name)

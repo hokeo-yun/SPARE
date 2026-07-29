@@ -34,7 +34,8 @@ class BaseOptions():
         parser.add_argument('--loadSize', type=int, default=256, help='scale images to this size')
         parser.add_argument('--cropSize', type=int, default=224, help='then crop to this size')
         
-        parser.add_argument('--select_k', type=int, default=5, help='then crop to this size')
+        parser.add_argument('--select_k', type=int, default=5, help='number of layers selected')
+        parser.add_argument('--k', type=int, default=1, help='number of independent patch-shuffle views')
         
         parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment. It decides where to store samples and models')

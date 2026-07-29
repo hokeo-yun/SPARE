@@ -10,7 +10,7 @@ class Trainer(BaseModel):
     def __init__(self, opt):
         super(Trainer, self).__init__(opt)
         self.opt = opt
-        self.model = get_model(opt.arch, 1, opt.select_k, True, opt.p, opt.ablation)
+        self.model = get_model(opt.arch, 1, opt.select_k, True, opt.p, opt.ablation, k=opt.k)
         # torch.nn.init.normal_(self.model.fc.weight.data, 0.0, opt.init_gain)
 
         if opt.fix_backbone:

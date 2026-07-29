@@ -30,17 +30,17 @@ VALID_NAMES = [
     'CLIP:ViT-L/14@336px',
 ]
 
-def get_model(name, num_classes, select_k, training, p, ablation_opt):
+def get_model(name, num_classes, select_k, training, p, ablation_opt, k=1):
     print(ablation_opt)
     assert name in VALID_NAMES
     if ablation_opt == 1:
         return ablation1.CLIPModel(name[5:], num_classes, select_k, training, p)
     elif ablation_opt == 2:
-        return ablation2.CLIPModel(name[5:], num_classes, select_k, training, p)
+        return ablation2.CLIPModel(name[5:], num_classes, select_k, training, p, k=k)
     elif ablation_opt == 3:
-        return ablation3.CLIPModel(name[5:], num_classes, select_k, training, p)
+        return ablation3.CLIPModel(name[5:], num_classes, select_k, training, p, k=k)
     elif ablation_opt == 4:
-        return ablation4.CLIPModel(name[5:], num_classes, select_k, training, p)
+        return ablation4.CLIPModel(name[5:], num_classes, select_k, training, p, k=k)
     elif ablation_opt == 5:
         return ablation5.CLIPModel(name[5:], num_classes, select_k, training, p)
     elif ablation_opt == 6:
@@ -48,8 +48,8 @@ def get_model(name, num_classes, select_k, training, p, ablation_opt):
     else:
         if name.startswith("Imagenet:"):
             # return ImagenetModel(name[9:])
-            return CLIPModel(name[5:], num_classes, select_k, training, p)
+            return CLIPModel(name[5:], num_classes, select_k, training, p, k=k)
         elif name.startswith("CLIP:"):
-            return CLIPModel(name[5:], num_classes, select_k, training, p)
+            return CLIPModel(name[5:], num_classes, select_k, training, p, k=k)
         else:
             assert False

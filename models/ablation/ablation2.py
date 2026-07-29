@@ -88,11 +88,14 @@ class LayerSelector(nn.Module):
 
 
 class CLIPModel(nn.Module):
-    def __init__(self, name, num_classes=1, select_num=5, training=True, p=1, cnt={}):
+    def __init__(self, name, num_classes=1, select_num=5, training=True, p=1, k=1, cnt={}):
         super(CLIPModel, self).__init__()
 
         print(name)
         self.p = p
+        self.k = int(k)
+        if self.k < 1:
+            raise ValueError(f"k ({k}) must be greater than or equal to 1.")
         self.model, self.preprocess = clip.load(name, device="cpu")
 
         self.cnt = cnt
@@ -140,7 +143,7 @@ class CLIPModel(nn.Module):
             tensors.append(x_out)
         return torch.stack(tensors, dim=1)  # [B, num_layers, D]
 
-    def patch_shuffle_p(self, x):
+    def _sample_patch_shuffle_positions(self, x):
         b, c, h, w = x.shape
         if h % self.patch_size != 0 or w % self.patch_size != 0:
             raise ValueError(
@@ -151,10 +154,34 @@ class CLIPModel(nn.Module):
         gw = w // self.patch_size
         n = gh * gw
 
-        # 计算需要打乱的 Patch 数量
         num_to_shuffle = int(self.p * n)
+        if num_to_shuffle <= 1:
+            return torch.empty(b, 0, dtype=torch.long, device=x.device)
 
-        # 如果打乱数量 <= 1，毫无意义，直接返回原图
+        rand_pos = torch.rand(b, n, device=x.device)
+        return torch.argsort(rand_pos, dim=1)[:, :num_to_shuffle]
+
+    def patch_shuffle_p(self, x, to_shuffle_pos=None):
+        b, c, h, w = x.shape
+        if h % self.patch_size != 0 or w % self.patch_size != 0:
+            raise ValueError(
+                f"Input size ({h}, {w}) must be divisible by patch_size ({self.patch_size})."
+            )
+
+        gh = h // self.patch_size
+        gw = w // self.patch_size
+        n = gh * gw
+
+        if to_shuffle_pos is None:
+            to_shuffle_pos = self._sample_patch_shuffle_positions(x)
+        else:
+            to_shuffle_pos = to_shuffle_pos.to(device=x.device, dtype=torch.long)
+            if to_shuffle_pos.size(0) != b:
+                raise ValueError(
+                    f"to_shuffle_pos batch size ({to_shuffle_pos.size(0)}) must match input batch size ({b})."
+                )
+
+        num_to_shuffle = to_shuffle_pos.size(1)
         if num_to_shuffle <= 1:
             return x
 
@@ -165,17 +192,11 @@ class CLIPModel(nn.Module):
 
         final_idx = torch.arange(n, device=x.device).unsqueeze(0).expand(b, n).clone()
 
-        rand_pos = torch.rand(b, n, device=x.device)
-        to_shuffle_pos = torch.argsort(rand_pos, dim=1)[:, :num_to_shuffle]
+        dst_pos, _ = torch.sort(to_shuffle_pos, dim=1, descending=False)
+        rand_shuffle = torch.rand(b, num_to_shuffle, device=x.device)
+        src_pos = to_shuffle_pos.gather(1, torch.argsort(rand_shuffle, dim=1))
 
-        idx_to_shuffle = final_idx.gather(1, to_shuffle_pos)
-
-        sorted_desc, indices_desc = torch.sort(idx_to_shuffle, dim=1, descending=False)
-
-        # rand_shuffle = torch.rand(b, num_to_shuffle, device=x.device)
-        # shuffled_subset = idx_to_shuffle.gather(1, torch.argsort(rand_shuffle, dim=1))
-
-        final_idx.scatter_(1, sorted_desc, to_shuffle_pos)
+        final_idx.scatter_(1, dst_pos, src_pos)
 
         gather_idx = final_idx.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(
             -1, -1, c, self.patch_size, self.patch_size
@@ -204,6 +225,21 @@ class CLIPModel(nn.Module):
         transformer_output = self.encoder(g)
         return transformer_output
 
+    def _collect_patch_shuffle_features(self, x, selection_probs):
+        ps_selected_features = []
+        to_shuffle_pos = self._sample_patch_shuffle_positions(x)
+        for _ in range(self.k):
+            x_ps = self.patch_shuffle_p(x, to_shuffle_pos=to_shuffle_pos)
+            self.model.encode_image(x_ps)
+            ps_all_cls_features = self._collect_all_cls_features()
+            selected_features, _ = self.selector(
+                ps_all_cls_features,
+                selection_probs=selection_probs,
+            )
+            ps_selected_features.append(selected_features)
+
+        return torch.stack(ps_selected_features, dim=0).mean(dim=0)
+
     def forward(self, x, return_feature=False):
         features = self.model.encode_image(x)
         all_cls_features = self._collect_all_cls_features()
@@ -212,13 +248,7 @@ class CLIPModel(nn.Module):
         if return_feature:
             return features
 
-        x_ps = self.patch_shuffle_p(x)
-        self.model.encode_image(x_ps)
-        ps_all_cls_features = self._collect_all_cls_features()
-        ps_selected_features, _ = self.selector(
-            ps_all_cls_features,
-            selection_probs=selection_probs,
-        )
+        ps_selected_features = self._collect_patch_shuffle_features(x, selection_probs)
 
         diff_selected_features = origin_selected_features - ps_selected_features
         delta_output = self.self_attention(diff_selected_features, True)

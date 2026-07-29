@@ -24,7 +24,7 @@ CUDA_ID="0"
 CKPT_PATH="./checkpoints/default_setting/best_model.pth"
 RESULT_FOLDER="./results/default_setting/"
 
-TEST_DATA="UFD"
+TEST_DATA="ForenSynths"
 
 CUDA_VISIBLE_DEVICES="${CUDA_ID}" python3 validate.py \
     --p=0.7 \

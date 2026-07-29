@@ -187,7 +187,7 @@ class CLIPModel(nn.Module):
         shuffled = shuffled.permute(0, 3, 1, 4, 2, 5).reshape(b, c, h, w)
         return shuffled
 
-    def patch_shuffle_p(self, x, k):
+    def patch_shuffle_p(self, x):
         b, c, h, w = x.shape
         if h % self.patch_size != 0 or w % self.patch_size != 0:
             raise ValueError(

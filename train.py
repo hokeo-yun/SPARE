@@ -15,6 +15,26 @@ import random
 from collections import Counter
 import torch
 
+def format_param_count(num_params):
+    if num_params >= 1_000_000_000:
+        return f"{num_params / 1_000_000_000:.3f}B"
+    if num_params >= 1_000_000:
+        return f"{num_params / 1_000_000:.3f}M"
+    if num_params >= 1_000:
+        return f"{num_params / 1_000:.3f}K"
+    return str(num_params)
+
+def print_model_parameters(model):
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    frozen_params = total_params - trainable_params
+
+    print("========== Model Parameters ==========")
+    print(f"Total params:     {total_params:,} ({format_param_count(total_params)})")
+    print(f"Trainable params: {trainable_params:,} ({format_param_count(trainable_params)})")
+    print(f"Frozen params:    {frozen_params:,} ({format_param_count(frozen_params)})")
+    print("======================================")
+
 def get_val_opt():
     val_opt = TrainOptions().parse(print_options=False)
     val_opt.isTrain = False
@@ -44,6 +64,7 @@ if __name__ == '__main__':
     set_seed(3000)
 
     model = Trainer(opt)
+    print_model_parameters(model.model)
     
     train_dataset = RealFakeDataset(opt)
     val_dataset = RealFakeDataset(val_opt)

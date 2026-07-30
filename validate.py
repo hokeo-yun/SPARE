@@ -95,6 +95,47 @@ def calculate_acc(y_true, y_pred, thres):
     acc = accuracy_score(y_true, y_pred > thres)
     return r_acc, f_acc, acc
 
+def print_inference_flops(opt, model=None):
+    try:
+        from analyze_params_flops import analytic_report
+    except Exception as exc:
+        print(f"FLOPs analysis skipped: {exc}")
+        return
+
+    select_k = opt.select_k if opt.select_k is not None else 5
+    effective_k = getattr(model, "k", 1) if model is not None else opt.k
+    flops_args = argparse.Namespace(
+        arch=opt.arch,
+        ablation=opt.ablation,
+        input_size=opt.flops_input_size,
+        batch_size=1,
+        select_k=select_k,
+        k=effective_k,
+        p=opt.p,
+    )
+
+    try:
+        report = analytic_report(flops_args, effective_k)
+    except Exception as exc:
+        print(f"FLOPs analysis skipped: {exc}")
+        return
+
+    total_macs = report.flops.total_macs
+    total_flops = report.flops.total_flops
+    batch_macs = total_macs * opt.batch_size
+    batch_flops = total_flops * opt.batch_size
+    height, width = report.input_size
+
+    print("========== Inference FLOPs ==========")
+    print(f"Input size:            {height}x{width}")
+    print(f"Vision encoder passes: {report.flops.vision_passes}")
+    if effective_k != opt.k:
+        print(f"Effective k:           {effective_k} (requested k={opt.k}, but this model does not expose k)")
+    print(f"Per image:             {total_macs / 1_000_000_000:.3f} GMACs / {total_flops / 1_000_000_000:.3f} GFLOPs")
+    print(f"Full batch x{opt.batch_size}:    {batch_macs / 1_000_000_000:.3f} GMACs / {batch_flops / 1_000_000_000:.3f} GFLOPs")
+    print("FLOPs are reported as 2 * MACs.")
+    print("=====================================")
+
 def validate(model, loader, find_thres=False, bs=256):
     model.eval()
 
@@ -264,6 +305,8 @@ if __name__ == '__main__':
     parser.add_argument('--p', type=float, default=1)
     parser.add_argument('--k', type=int, default=1, help="number of independent patch-shuffle views")
     parser.add_argument('--ablation', type=int, default=0)
+    parser.add_argument('--flops_input_size', '--flops-input-size', nargs='+', type=int, default=[224],
+                        help="input size used for inference FLOPs analysis. Use one int for square input or two ints for H W")
 
 
     opt = parser.parse_args()
@@ -275,6 +318,7 @@ if __name__ == '__main__':
     state_dict = torch.load(opt.ckpt, map_location='cpu')["model"]
     model.load_state_dict(state_dict)
     print ("Model loaded..")
+    print_inference_flops(opt, model)
     model.eval()
     model.cuda()
 

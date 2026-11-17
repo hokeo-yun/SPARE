@@ -135,7 +135,15 @@ class CLIPModel(nn.Module):
         self.delta_pos_embedding = nn.Embedding(select_num, proj_dim)
 
         self.delta_cls = nn.Parameter(torch.randn(1, 1, proj_dim))
-        self.patch_size = 16
+        # Derive the patch-shuffle block size from the backbone patch size
+        # (ViT: conv1 is the patch embedding with kernel == stride == patch_size)
+        visual = self.model.visual
+        if hasattr(visual, "conv1") and visual.conv1.kernel_size[0] == visual.conv1.stride[0]:
+            self.patch_size = visual.conv1.kernel_size[0]
+        else:
+            # RN-family backbones have no patch grid; keep the previous 16px block
+            self.patch_size = 16
+        print(f"patch_shuffle block size: {self.patch_size}")
 
         self.gating_networks = nn.ModuleList([
             GatingNetwork(hidden_dim=16)
